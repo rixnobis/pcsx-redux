@@ -340,6 +340,15 @@ SaveState constructSaveState();
 
 std::string save();
 bool load(std::string_view data);
+
+/* The in-memory pair. capture()/restore() are save()/load() with the protobuf encode and
+   decode taken out: the message already owns a copy of every field, and commit() has always
+   pushed those copies live, so the only missing direction was pulling live state into them.
+   restore() deliberately does NOT call m_cpu->Reset() the way load() does, so a caller that
+   wants a transparent snapshot keeps its icache and delayed-load state - which also means it
+   owes the code cache an invalidation for anything it rewound. */
+void capture(SaveState &state);
+void restore(SaveState &state);
 }  // namespace SaveStates
 
 }  // namespace PCSX

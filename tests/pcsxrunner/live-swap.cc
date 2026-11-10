@@ -48,6 +48,15 @@ local function later(f)
     local t = luv.new_timer()
     t:start(1, 0, function() t:close() f() end)
 end
+-- A timer can still fire from the update() that vsync runs inside Execute(), where the switch is
+-- only queued. The emulator is paused, so nothing runs before the main loop applies it.
+local function switched(cond, k, tries)
+    tries = tries or 0
+    if cond() then return k() end
+    if tries == 100 then return fail(5, 'backend did not switch') end
+    local t = luv.new_timer()
+    t:start(1, 0, function() t:close() switched(cond, k, tries + 1) end)
+end
 local function swap()
     local c, v = tonumber(ram[base + 0x41]), bit.tobit(ram[base + 0x40])
     if c <= last then return fail(2, 'guest stopped at ' .. c) end
@@ -58,11 +67,13 @@ local function swap()
     local a, b = tostring(PCSX.createSaveState()), tostring(PCSX.createSaveState())
     if a ~= b then return fail(4, 'two saves in a row differ') end
     PCSX.settings.emulator.Dynarec = want
-    if not PCSX.applyBackendSettings() or PCSX.CPU.isDynarec() ~= want then return fail(5, 'cpu did not switch') end
-    if tostring(PCSX.createSaveState()) ~= a then return fail(6, 'state changed across the switch') end
-    swaps = swaps + 1
-    if swaps == 16 then return PCSX.quit(0) end
-    PCSX.resumeEmulator()
+    if not PCSX.applyBackendSettings() then return fail(5, 'cpu switch refused') end
+    switched(function() return PCSX.CPU.isDynarec() == want end, function()
+        if tostring(PCSX.createSaveState()) ~= a then return fail(6, 'state changed across the switch') end
+        swaps = swaps + 1
+        if swaps == 16 then return PCSX.quit(0) end
+        PCSX.resumeEmulator()
+    end)
 end
 LiveSwapListener = PCSX.Events.createEventListener('GPU::Vsync', function()
     frames = frames + 1
@@ -100,6 +111,15 @@ local function later(f)
     local t = luv.new_timer()
     t:start(1, 0, function() t:close() f() end)
 end
+-- A timer can still fire from the update() that vsync runs inside Execute(), where the switch is
+-- only queued. The emulator is paused, so nothing runs before the main loop applies it.
+local function switched(cond, k, tries)
+    tries = tries or 0
+    if cond() then return k() end
+    if tries == 100 then return fail(5, 'backend did not switch') end
+    local t = luv.new_timer()
+    t:start(1, 0, function() t:close() switched(cond, k, tries + 1) end)
+end
 local function plant(words)
     local i = 0x100000 / 4
     ram[i] = 0x3c081f80 i = i + 1
@@ -121,9 +141,11 @@ local function swap(want)
     local a, b = tostring(PCSX.createSaveState()), tostring(PCSX.createSaveState())
     if a ~= b then return fail(4, 'two saves in a row differ') end
     PCSX.settings.emulator.HardwareRenderer = want
-    if not PCSX.applyBackendSettings() or PCSX.GPU.isOpenGL() ~= want then return fail(5, 'gpu did not switch') end
-    if tostring(PCSX.createSaveState()) ~= a then return fail(6, 'state changed across the switch') end
-    PCSX.resumeEmulator()
+    if not PCSX.applyBackendSettings() then return fail(5, 'gpu switch refused') end
+    switched(function() return PCSX.GPU.isOpenGL() == want end, function()
+        if tostring(PCSX.createSaveState()) ~= a then return fail(6, 'state changed across the switch') end
+        PCSX.resumeEmulator()
+    end)
 end
 local env = { 0xe1000400, 0xe3000000, 0xe407ffff, 0xe5000000, 0xe6000000 }
 LiveSwapListener = PCSX.Events.createEventListener('GPU::Vsync', function()

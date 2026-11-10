@@ -222,6 +222,7 @@ class GPU {
     void chainedDMAWrite(const uint32_t *memory, uint32_t hwAddr);
     void writeStatus(uint32_t gdata);
     virtual void setOpenGLContext() {}
+    virtual bool isOpenGL() const { return false; }
 
     virtual void restoreStatus(uint32_t status) = 0;
 

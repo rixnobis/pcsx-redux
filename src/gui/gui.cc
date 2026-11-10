@@ -2252,7 +2252,7 @@ bool PCSX::GUI::configure() {
     bool selectBiosDialog = false;
     bool selectEXP1Dialog = false;
     bool showDynarecDebugWarning = false;
-    bool showDynarecWarning = false;
+    bool showBackendWarning = false;
     bool show2MBVRAMHardwareWarning = false;
     auto& settings = g_emulator->settings;
     auto& debugSettings = settings.get<Emulator::SettingDebugSettings>();
@@ -2271,7 +2271,7 @@ bool PCSX::GUI::configure() {
         changed |= ImGui::Checkbox(_("Decode MDEC videos in B&W"), &settings.get<Emulator::SettingBnWMdec>().value);
         if (ImGui::Checkbox(_("Dynarec CPU"), &settings.get<Emulator::SettingDynarec>().value)) {
             changed = true;
-            showDynarecWarning = true;
+            if (!g_emulator->applyBackendSettings()) showBackendWarning = true;
             if (debugSettings.get<PCSX::Emulator::DebugSettings::Debug>() && settings.get<Emulator::SettingDynarec>()) {
                 showDynarecDebugWarning = true;
             }
@@ -2280,7 +2280,7 @@ bool PCSX::GUI::configure() {
         ImGuiHelpers::ShowHelpMarker(_(R"(Activates the dynamic recompiler CPU core.
 It is significantly faster than the interpreted CPU,
 however it doesn't play nicely with the debugger.
-Changing this setting requires a reboot to take effect.
+Changing this setting takes effect right away.
 The dynarec core isn't available for all CPUs, so
 this setting may not have any effect for you.)"));
         bool memChanged = ImGui::Checkbox(_("8MB"), &settings.get<Emulator::Setting8MB>().value);
@@ -2300,6 +2300,7 @@ cause issues in some cases.
 )"));
         if (ImGui::Checkbox(_("OpenGL GPU *ALPHA STATE*"), &settings.get<Emulator::SettingHardwareRenderer>().value)) {
             changed = true;
+            if (!g_emulator->applyBackendSettings()) showBackendWarning = true;
             if (settings.get<Emulator::SettingHardwareRenderer>() && settings.get<Emulator::Setting2MBVRAM>()) {
                 show2MBVRAMHardwareWarning = true;
             }
@@ -2418,19 +2419,19 @@ can slow down emulation to a noticeable extent.)"));
             }
         }
     }
-    if (showDynarecDebugWarning && showDynarecWarning) {
+    if (showDynarecDebugWarning && showBackendWarning) {
         addNotification(R"(Debugger and dynarec enabled at the same time.
 Consider turning either one off, otherwise
 debugging features may not work. Additionally,
-changing the dynarec option requires a restart
-of the emulator to take effect.)");
+the new CPU or GPU backend could not be started
+live, and will be used after a restart.)");
     } else if (showDynarecDebugWarning) {
         addNotification(R"(Debugger and dynarec enabled at the same time.
 Consider turning either one off, otherwise
 debugging features may not work.)");
-    } else if (showDynarecWarning) {
-        addNotification(R"(Toggling the Dynarec option requires a restart
-of the emulator to take effect.)");
+    } else if (showBackendWarning) {
+        addNotification(R"(The new CPU or GPU backend could not be started
+live, and will be used after a restart.)");
     }
     if (show2MBVRAMHardwareWarning) {
         addNotice(R"(2MB VRAM is enabled together with the OpenGL GPU.

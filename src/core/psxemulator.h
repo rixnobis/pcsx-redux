@@ -304,6 +304,22 @@ class Emulator {
     void dispatchVSync();
     void setPGXPMode(uint32_t pgxpMode);
 
+    // Live backend swap. applyBackendSettings() brings the CPU (SettingDynarec) and the GPU
+    // (SettingHardwareRenderer) in line with their settings without a restart: the machine goes
+    // through an in-memory save state, each backend that has to change is replaced, and the state
+    // is loaded back. From inside Execute() the swap is only marked, and the main loop applies it
+    // with applyPendingBackendSwap() once Execute() has unwound at the next vsync; the return value
+    // then only says it was queued. Otherwise it returns false if a backend that had to change
+    // could not, and the machine keeps running on the one it had.
+    bool applyBackendSettings();
+    bool backendSwapPending() const { return m_backendSwapPending; }
+    bool applyPendingBackendSwap();
+    // One backend each. Called between SaveStates::save() and load(), so the machine state is not
+    // theirs to carry, only what lives on the backend object outside the save state. On false the
+    // old backend is still in place and still initialised.
+    bool swapCPU(bool dynarec);
+    bool swapGPU(bool opengl);
+
     // Rewind: ring of in-memory snapshots taken every RewindInterval frames, bounded to
     // RewindCount entries. Entries are SaveStates::capture()d messages, restored with
     // SaveStates::restore(), so neither direction goes through the protobuf encoding.
@@ -383,6 +399,7 @@ class Emulator {
 
   private:
     PcsxConfig m_config;
+    bool m_backendSwapPending = false;
     std::atomic<int> m_turboFactor{1};
 };
 

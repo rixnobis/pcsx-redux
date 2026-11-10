@@ -33,6 +33,7 @@ class OpenGL_GPU final : public GPU {
     int shutdown() override;
     uint32_t readStatusInternal() override;
     void setOpenGLContext() override;
+    bool isOpenGL() const override { return true; }
     void vblank(bool fromGui) override;
     // This backend's vblank() touches no emulated state (no GPUSTAT toggle): it flushes the
     // pending batch and presents, so it is safe to reuse here.

@@ -74,6 +74,9 @@ void luaLog(const char* msg);
 void jumpToPC(uint32_t address);
 void jumpToMemory(uint32_t address, unsigned width);
 void invalidateCache();
+bool applyBackendSettings();
+bool isDynarec();
+bool isOpenGLGPU();
 
 typedef struct {
     uint32_t pc, code, regRs, regRt, regRd, hilo, cop, memValue;
@@ -270,10 +273,15 @@ PCSX = {
     softResetEmulator = function() C.softResetEmulator() end,
     hardResetEmulator = function() C.hardResetEmulator() end,
     invalidateCache = function() C.invalidateCache() end,
+    -- Switches the CPU and GPU backends to match settings.emulator.Dynarec and
+    -- settings.emulator.HardwareRenderer, keeping the machine running. From an event
+    -- listener the switch waits for the next vsync and this returns true once queued.
+    applyBackendSettings = function() return C.applyBackendSettings() end,
     log = function(...) printLike(function(msg) C.luaLog(msg .. '\n') end, ...) end,
     GUI = { jumpToPC = jumpToPC, jumpToMemory = jumpToMemory },
     WebServer = { Handlers = {} },
     CPU = {
+        isDynarec = function() return C.isDynarec() end,
         -- Binary CPU trace. Records are fixed PCSX_TraceEntry structs; the store is
         -- chunked, so read() flattens a range into a fresh FFI array
         -- you can inspect, ffi.string(), or write to a File. getLine() renders the
@@ -336,6 +344,7 @@ PCSX = {
         },
     },
     GPU = {
+        isOpenGL = function() return C.isOpenGLGPU() end,
         takeScreenShot = function()
             local ss = C.takeScreenShot()
             return {

@@ -623,6 +623,14 @@ runner.init({
                     } else if (!PCSX::SaveStates::load(system->takePendingSaveStateLoad())) {
                         PCSX::g_system->message(_("Failed to load save state\n"));
                     }
+                } else if (emulator->backendSwapPending()) {
+                    // A backend switch asked for from inside Execute(), see
+                    // Emulator::applyBackendSettings(). Execute() unwinds at every vsync,
+                    // so this is at most a frame late.
+                    if (!emulator->applyPendingBackendSwap()) {
+                        PCSX::g_system->message(
+                            "%s", _("Could not switch the CPU or GPU backend live.\nThe change applies on the next restart.\n"));
+                    }
                 } else if (system->running()) {
                     // Runs until the emulated hardware vsyncs, or until paused.
                     system->setInExecute(true);

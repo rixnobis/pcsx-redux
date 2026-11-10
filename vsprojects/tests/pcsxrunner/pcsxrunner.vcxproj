@@ -276,6 +276,7 @@
     <ClCompile Include="..\..\..\tests\pcsxrunner\gpudump-deinterlace.cc" />
     <ClCompile Include="..\..\..\tests\pcsxrunner\gpu-raster.cc" />
     <ClCompile Include="..\..\..\tests\pcsxrunner\gpu-threaded.cc" />
+    <ClCompile Include="..\..\..\tests\pcsxrunner\live-swap.cc" />
     <ClCompile Include="..\..\..\tests\pcsxrunner\gte.cc" />
     <ClCompile Include="..\..\..\tests\pcsxrunner\libc.cc" />
     <ClCompile Include="..\..\..\tests\pcsxrunner\lua.cc" />

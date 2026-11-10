@@ -393,4 +393,60 @@ void PCSX::Emulator::dropRewindSnapshotsAfter(uint64_t cycle) {
 
 void PCSX::Emulator::setPGXPMode(uint32_t pgxpMode) { m_cpu->psxSetPGXPMode(pgxpMode); }
 
+bool PCSX::Emulator::applyBackendSettings() {
+    // Same reason as SaveStates::loadSafe(): Counters::update() and branchTest() are on the stack
+    // and hold on to the cpu. Execute() unwinds at the next vsync anyway, see dispatchVSync().
+    if (g_system->inExecute()) {
+        m_backendSwapPending = true;
+        return true;
+    }
+    return applyPendingBackendSwap();
+}
+
+bool PCSX::Emulator::applyPendingBackendSwap() {
+    m_backendSwapPending = false;
+    const bool dynarec = settings.get<SettingDynarec>();
+    const bool opengl = settings.get<SettingHardwareRenderer>();
+    const bool cpu = dynarec != m_cpu->isDynarec();
+    const bool gpu = opengl != m_gpu->isOpenGL();
+    if (!cpu && !gpu) return true;
+
+    const std::string state = SaveStates::save();
+    // load() clears the stack bounds, which a guest only sets again on its next context switch.
+    const auto stackBounds = m_cpu->m_stackBounds;
+    bool ok = true;
+    if (cpu) ok = swapCPU(dynarec) && ok;
+    if (gpu) ok = swapGPU(opengl) && ok;
+    if (!SaveStates::load(state)) {
+        g_system->message("%s", _("Failed to restore the machine after switching backends\n"));
+        return false;
+    }
+    m_cpu->m_stackBounds = stackBounds;
+    return ok;
+}
+
+bool PCSX::Emulator::swapCPU(bool dynarec) {
+    std::unique_ptr<R3000Acpu> next = dynarec ? Cpus::DynaRec() : Cpus::Interpreted();
+    if (!next) return false;
+    // Both recompilers emit into one static code buffer, which Init() maps and resets. That is
+    // fine here because the two sides of a swap are never both recompilers.
+    if (!next->Init()) return false;
+    next->psxSetPGXPMode(m_config.PGXP_Mode);
+    // The save state does not hold these. Losing m_shellStarted would hijack the shell again the
+    // next time the guest runs through its entry point.
+    next->m_shellStarted = m_cpu->m_shellStarted;
+    std::copy(std::begin(m_cpu->m_scheduleScales), std::end(m_cpu->m_scheduleScales),
+              std::begin(next->m_scheduleScales));
+    m_cpu->Shutdown();
+    m_cpu = std::move(next);
+    g_system->printf(_("CPU type: %s\n"), m_cpu->getName().c_str());
+    return true;
+}
+
+bool PCSX::Emulator::swapGPU(bool opengl) {
+    // Not written yet: tests/pcsxrunner/live-swap.cc pins what it has to do. Until then the GPU
+    // backend changes on a restart only.
+    return false;
+}
+
 PCSX::Emulator* PCSX::g_emulator;

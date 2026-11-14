@@ -61,18 +61,21 @@ namespace {
 
 // A sample that repeats with no loop-start flag jumps, at its end, to whatever the voice's loop
 // register holds. When the game set that register to an address inside the sample at its
-// key-ons, the most frequent such address is its loop. Anything else stays a one-shot.
+// key-ons, the most frequent such address is its loop, the lowest one on a tie. Anything else
+// stays a one-shot.
 void applyGameLoop(PCSX::Widgets::SPUSamples::Sample& s) {
     s.gameLoop = false;
     if (s.truncated || !s.repeats || s.hasLoop) return;
     uint32_t best = 0, bestCount = 0;
+    // keyOnLoops is ordered by address, so the first of several equal counts is the lowest.
     for (auto [address, count] : s.keyOnLoops) {
+        if (address < s.start || address >= s.end) continue;
         if (count > bestCount) {
             best = address;
             bestCount = count;
         }
     }
-    if (bestCount == 0 || best < s.start || best >= s.end) return;
+    if (bestCount == 0) return;
     s.loop = best;
     s.hasLoop = true;
     s.gameLoop = true;

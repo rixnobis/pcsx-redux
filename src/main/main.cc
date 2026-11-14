@@ -698,7 +698,7 @@ runner.init({
                     const bool deviceClock = now - s_lastPlayedMs < c_deviceStallMs;
                     // Samples on the master clock: the device's played count, or the wall clock.
                     const double clock = deviceClock ? double(played)
-                                                     : now * c_sampleRate / 1000.0 * emulator->getTurboFactor();
+                                                     : now * c_sampleRate / 1000.0 * emulator->m_spu->getEffectiveSpeed();
                     const uint64_t cycle = emulator->m_cpu->m_regs.cycle;
                     const double lead = emulator->m_spu->getLeadFrames();
                     const double realign = lead + c_sampleRate / 4.0;

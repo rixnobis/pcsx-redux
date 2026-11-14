@@ -62,6 +62,7 @@ std::shared_ptr<const PCSX::SPU::Overlay> PCSX::SPU::Overlay::fromSF2(const uint
         e.loopStart = s.loopStart;
         e.loopEnd = s.loopEnd;
         e.originalNote = record->second.note;
+        e.bytes = record->second.size;
         overlay->m_sizes.insert(record->second.size);
     }
     if (skipped) *skipped = bad;

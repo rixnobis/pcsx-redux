@@ -48,15 +48,19 @@ class Overlay {
         double loopEnd = 0;
         // The original's note at pitch 1000h as the pack's writer measured it, from its record.
         double originalNote = 60.0;
+        // Bytes of sound RAM the original's signature covers, from its record.
+        uint32_t bytes = 0;
     };
 
     // Samples whose name is not exactly 16 hex digits, or with no record in the bank's comment,
     // are skipped and counted in `skipped`.
     static std::shared_ptr<const Overlay> fromSF2(const uint8_t* data, size_t size, unsigned* skipped = nullptr);
 
-    const Entry* find(uint64_t signature) const {
+    // The replacement for a sample with this signature over `bytes` of sound RAM. Both have to
+    // match the record, so skipping mayReplace never changes the answer.
+    const Entry* find(uint64_t signature, uint32_t bytes) const {
         auto it = m_entries.find(signature);
-        return it == m_entries.end() ? nullptr : &it->second;
+        return it == m_entries.end() || it->second.bytes != bytes ? nullptr : &it->second;
     }
     size_t size() const { return m_entries.size(); }
     // Whether a sample whose signature covers `bytes` of sound RAM can have a replacement here.

@@ -340,7 +340,8 @@ void PCSX::Widgets::SPUSamples::draw(PCSX::SPULogger* logger, const uint8_t* spu
                 }
             }
             ImGui::TableSetColumnIndex(9);
-            if (overlay && !s.truncated && overlay->find(s.signature)) ImGui::TextUnformatted(_("yes"));
+            if (overlay && !s.truncated && overlay->find(s.signature, s.end - s.start))
+                ImGui::TextUnformatted(_("yes"));
         }
         ImGui::EndTable();
     }

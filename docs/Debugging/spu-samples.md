@@ -10,7 +10,7 @@ Each row is one sample:
 
 - `Start` and `End` are its addresses in sound RAM, from the start address to the end of the block carrying the loop end flag. An end with a `+` means the sample ran off the end of sound RAM without an end flag; such a sample has no signature and cannot be exported or replaced.
 - `Samples` is its length in decoded samples, 28 per block.
-- `Loop` is the address of its loop block, or `one shot`. Many games end a sample on a repeat flag with no loop-start flag and set the loop address in the voice's register instead; for those the column shows the address the game used most often at the sample's key-ons, marked `(register)`, and `repeat` when no such address was seen inside the sample.
+- `Loop` is the address of its loop block, or `one shot`. Many games end a sample on a repeat flag with no loop-start flag and set the loop address in the voice's register instead; for those the column shows, of the addresses inside the sample that the game used at its key-ons, the most frequent one, marked `(register)`. It shows `repeat` when the game used no address inside the sample.
 - `Key ons` counts the key-ons logged for it, and `Voices` lists the voices that played it.
 - `Signature` is the 16 hexadecimal digit MD5-based signature that identifies the sample by its content. The same sample loaded at another address has the same signature.
 - `Root` is the note the sample sounds at pitch 1000h, from its measured fundamental frequency, with note 69 = 440 Hz = A4. Unpitched samples, such as noise and most percussion, have none.

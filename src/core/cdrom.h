@@ -129,6 +129,10 @@ class CDRom {
     // to save/init
     uint64_t m_seed = c_defaultSeed;
     uint64_t m_powerOnSeed = c_defaultSeed;
+    // Strict hardware: data-sector fetches counted since power-on while StrictHardware is on. The
+    // read error injector draws from (StrictCDReadErrorSeed, this count), so it replays across a
+    // save state; a state saved before the field existed restores it as 0.
+    uint64_t m_strictReadCount = 0;
     uint8_t m_dataFIFO[2352] = {0};
     uint32_t m_dataFIFOIndex = 0;
     uint32_t m_dataFIFOSize = 0;

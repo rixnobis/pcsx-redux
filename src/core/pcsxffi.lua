@@ -386,6 +386,7 @@ PCSX = {
             CDCommand = 0x0301,
             CDResponse = 0x0302,
             CDSector = 0x0303,
+            CDReadError = 0x0304,
             GPUCommand = 0x0401,
             GPUControl = 0x0402,
             SPURegWrite = 0x0501,

@@ -118,6 +118,10 @@ std::string PCSX::HWEvents::describe(const HWEvent& e) {
             if ((p[2] & 0xff) == 2) out += fmt::format(", subheader {:08x}", p[3]);
             return out;
         }
+        case CDReadError: {
+            unsigned m = p[0] / 75 / 60, s = (p[0] / 75) % 60, f = p[0] % 75;
+            return fmt::format("CD read error injected at {:02}:{:02}:{:02}", m, s, f);
+        }
         case GPUCommand: {
             switch (p[1]) {
                 case 0:

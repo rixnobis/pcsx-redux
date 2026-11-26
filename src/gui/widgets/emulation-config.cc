@@ -165,6 +165,24 @@ amount of jitter, like a real drive. By default
 it is the same on every run, so a session can be
 replayed exactly. Enabling this picks a different
 sequence at each power-on.)"));
+        changed |= ImGui::Checkbox(_("Strict hardware"), &settings.get<Emulator::SettingStrictHardware>().value);
+        ImGuiHelpers::ShowHelpMarker(_(R"(Makes the emulator fail where a real console
+fails, so that a game's error handling gets
+exercised. Off by default; the options below
+only apply while this is on.)"));
+        if (settings.get<Emulator::SettingStrictHardware>()) {
+            ImGui::Indent();
+            changed |= ImGui::InputScalar(_("CD-ROM read error rate (1 in N sectors; 0 = off)"), ImGuiDataType_U32,
+                                          &settings.get<Emulator::SettingStrictCDReadErrorRate>().value);
+            ImGuiHelpers::ShowHelpMarker(_(R"(Treats each data sector the drive reads as
+unreadable with a probability of 1 in N, like a
+scratched or badly burned disc. 0 disables it.)"));
+            changed |= ImGui::InputScalar(_("CD-ROM read error seed"), ImGuiDataType_U32,
+                                          &settings.get<Emulator::SettingStrictCDReadErrorSeed>().value);
+            ImGuiHelpers::ShowHelpMarker(_(R"(The same seed and the same sequence of reads
+pick the same sectors, so a failing run replays.)"));
+            ImGui::Unindent();
+        }
         auto bios = settings.get<Emulator::SettingBios>().string();
         ImGui::InputText(_("BIOS file"), const_cast<char*>(reinterpret_cast<const char*>(bios.c_str())),
                          bios.length() + 1, ImGuiInputTextFlags_ReadOnly);

@@ -195,6 +195,15 @@ class Emulator {
     typedef Setting<bool, TYPESTRING("FastBoot"), false> SettingFastBoot;
     typedef Setting<bool, TYPESTRING("CDRomEntropySeed"), false> SettingCDRomEntropySeed;
     typedef Setting<bool, TYPESTRING("RCntFix")> SettingRCntFix;
+    // Strict hardware: opt-in behaviours that make the emulator fail where a real console
+    // fails, instead of always succeeding. Off by default.
+    typedef Setting<bool, TYPESTRING("StrictHardware"), false> SettingStrictHardware;
+    // With StrictHardware on, each data sector the CD-ROM controller fetches during ReadN/ReadS
+    // is treated as unreadable with a probability of 1 in this value; 0 never injects.
+    typedef Setting<uint32_t, TYPESTRING("StrictCDReadErrorRate"), 0> SettingStrictCDReadErrorRate;
+    // Seed of the generator that picks the unreadable sectors: the same seed and the same read
+    // sequence pick the same sectors, so a failing run replays.
+    typedef Setting<uint32_t, TYPESTRING("StrictCDReadErrorSeed"), 0> SettingStrictCDReadErrorSeed;
     typedef SettingPath<TYPESTRING("IsoPath")> SettingIsoPath;
     typedef SettingString<TYPESTRING("Locale")> SettingLocale;
     typedef Setting<bool, TYPESTRING("Mcd1Inserted"), true> SettingMcd1Inserted;
@@ -249,7 +258,7 @@ class Emulator {
              SettingRewindCount, SettingCDRomEntropySeed, SettingMcd1B, SettingMcd1C, SettingMcd1D, SettingMcd2B,
              SettingMcd2C, SettingMcd2D, SettingMcd1BInserted, SettingMcd1CInserted, SettingMcd1DInserted,
              SettingMcd2BInserted, SettingMcd2CInserted, SettingMcd2DInserted, SettingScreenshotDir,
-             SettingSaveStateDir>
+             SettingSaveStateDir, SettingStrictHardware, SettingStrictCDReadErrorRate, SettingStrictCDReadErrorSeed>
         settings;
     class PcsxConfig {
       public:

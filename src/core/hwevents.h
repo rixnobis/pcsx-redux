@@ -83,6 +83,9 @@ class HWEvents {
         // audio; sector mode | Setmode value << 8; Mode 2 subheader (file,
         // channel, submode, coding) or 0
         CDSector = 0x0303,
+        // Strict hardware picked the data sector just fetched as unreadable. Recorded right
+        // before that sector's CDSector. payload: position as for CDSector
+        CDReadError = 0x0304,
         // A word the GPU reads as the start of a GP0 command, NOPs included.
         // payload: the command word, how it arrived (0 port write, 2 block DMA,
         // 3 linked-list DMA), the port value or the DMA address of the block or

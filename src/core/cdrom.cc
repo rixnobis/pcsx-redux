@@ -126,6 +126,7 @@ class CDRomImpl final : public PCSX::CDRom {
             m_seed = ((uint64_t(rd()) << 32) | rd()) | 1;
         }
         m_powerOnSeed = m_seed;
+        m_strictReadCount = 0;
         // With a disc in, the motor is on when a program starts (SCPH-7001 / SCPH-9002: the first
         // GetStat reports bit 1 set).
         m_motorOn = m_iso && !m_iso->failed() && !isLidOpen();
@@ -245,6 +246,9 @@ class CDRomImpl final : public PCSX::CDRom {
                     PCSX::g_emulator->m_cdromLogger->recordAccess(m_currentPosition.toLBA(),
                                                                   PCSX::CDRomLogger::AccessType::Data,
                                                                   PCSX::g_emulator->m_cpu->m_regs.cycle);
+                    if (PCSX::g_emulator->settings.get<PCSX::Emulator::SettingStrictHardware>()) [[unlikely]] {
+                        maybeInjectReadError();
+                    }
                     auto buffer = m_iso->getBuffer();
                     memcpy(m_lastLocL, buffer, sizeof(m_lastLocL));
                     uint32_t size = 0;
@@ -319,6 +323,41 @@ class CDRomImpl final : public PCSX::CDRom {
                 break;
         }
     }
+
+    // Strict hardware: one draw per data-sector fetch, from a data track only (CDDA tracks are
+    // rejected before the fetch). The draw is splitmix64 of the fetch index, keyed on the seed
+    // setting, so the same seed and the same read sequence pick the same sectors.
+    static uint64_t strictDraw(uint32_t seed, uint64_t index) {
+        uint64_t z = (uint64_t(seed) << 32 | seed) + (index + 1) * 0x9e3779b97f4a7c15ull;
+        z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ull;
+        z = (z ^ (z >> 27)) * 0x94d049bb133111ebull;
+        return z ^ (z >> 31);
+    }
+
+    void maybeInjectReadError() {
+        auto &settings = PCSX::g_emulator->settings;
+        const uint64_t index = m_strictReadCount++;
+        const uint32_t rate = settings.get<PCSX::Emulator::SettingStrictCDReadErrorRate>();
+        if (rate == 0) return;
+        const uint32_t seed = settings.get<PCSX::Emulator::SettingStrictCDReadErrorSeed>();
+        if ((strictDraw(seed, index) % rate) != 0) return;
+        // The position counts from 00:00:00, as in the CDSector event; the LBA in the log from 00:02:00.
+        const uint32_t position = m_currentPosition.toLBA();
+        std::string msfFormat = fmt::format("{}", m_currentPosition);
+        PCSX::g_system->log(PCSX::LogClass::CDROM, "CD-Rom: strict hardware: unreadable sector at %s (LBA %i).\n",
+                            msfFormat, int32_t(position) - 150);
+        auto &events = *PCSX::g_emulator->m_hwEvents;
+        if (events.armed(PCSX::HWEvents::Source::CDROM)) [[unlikely]] {
+            events.record(PCSX::HWEvents::CDReadError, position);
+        }
+        respondToUnreadableSector();
+    }
+
+    // What the controller does with a data sector it cannot read is not known yet: it is pending a
+    // measurement on a console (redux#2832). Until then this does nothing observable, and the
+    // sector is delivered exactly as it is without strict hardware. Do not put an error code, an
+    // INT5, a retry delay or anything else here before that measurement exists.
+    void respondToUnreadableSector() {}
 
     void scheduledDmaCallback() override {
         auto &mem = PCSX::g_emulator->m_mem;

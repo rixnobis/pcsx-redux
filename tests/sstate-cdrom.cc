@@ -76,6 +76,7 @@ struct State {
     int32_t xaright[2] = {};
     bool sectorreadsinceseek = false;
     bool scexcountersreset = false;
+    uint64_t strictreadcount = 0;
 };
 
 CDRom bind(State& s) {
@@ -148,6 +149,7 @@ CDRom bind(State& s) {
         CDXARight{CDADPCM{CDADPCMY0{s.xaright[0]}, CDADPCMY1{s.xaright[1]}}},
         CDSectorReadSinceSeek{s.sectorreadsinceseek},
         CDScexCountersReset{s.scexcountersreset},
+        CDStrictReadCount{s.strictreadcount},
     };
 }
 
@@ -230,6 +232,7 @@ void fill(State& s) {
     s.xaright[1] = -356355;
     s.sectorreadsinceseek = true;
     s.scexcountersreset = true;
+    s.strictreadcount = 0x123456789abcdefull;
 }
 
 }  // namespace
@@ -329,4 +332,5 @@ TEST(SaveStateCDRom, EveryFieldRoundTrips) {
     EXPECT_EQ(out.xaright[1], in.xaright[1]) << "xaright[1]";
     EXPECT_EQ(out.sectorreadsinceseek, in.sectorreadsinceseek) << "sectorreadsinceseek";
     EXPECT_EQ(out.scexcountersreset, in.scexcountersreset) << "scexcountersreset";
+    EXPECT_EQ(out.strictreadcount, in.strictreadcount) << "strictreadcount";
 }

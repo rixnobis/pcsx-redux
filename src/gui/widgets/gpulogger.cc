@@ -19,11 +19,57 @@
 
 #include "gui/widgets/gpulogger.h"
 
+#include <algorithm>
+#include <iterator>
+
 #include "core/gpulogger.h"
 #include "core/psxemulator.h"
 #include "core/system.h"
 #include "fmt/format.h"
 #include "support/imgui-helpers.h"
+
+namespace {
+
+// Draws the outline of a command's write footprint. The footprint comes as triangles, and an edge shared by two
+// of them is the inside diagonal of a quad or a rectangle, so only the edges seen once are drawn.
+template <typename ToScreen>
+void outlineNode(ImDrawList* drawList, PCSX::GPU::Logged& logged, ToScreen&& toScreen, ImU32 color) {
+    struct Edge {
+        PCSX::OpenGL::ivec2 a, b;
+        bool same(const Edge& o) const {
+            auto eq = [](PCSX::OpenGL::ivec2 p, PCSX::OpenGL::ivec2 q) { return p.x() == q.x() && p.y() == q.y(); };
+            return (eq(a, o.a) && eq(b, o.b)) || (eq(a, o.b) && eq(b, o.a));
+        }
+    };
+    // Large enough for the wrapped copies of a quad; anything past it is simply not deduplicated.
+    Edge edges[24];
+    unsigned count = 0;
+    bool overflow = false;
+    logged.getVertices(
+        [&](auto v1, auto v2, auto v3) {
+            for (auto& e : {Edge{v1, v2}, Edge{v2, v3}, Edge{v3, v1}}) {
+                if (count < std::size(edges)) {
+                    edges[count++] = e;
+                } else {
+                    overflow = true;
+                    drawList->AddLine(toScreen(e.a), toScreen(e.b), color);
+                }
+            }
+        },
+        PCSX::GPU::Logged::PixelOp::WRITE);
+    for (unsigned i = 0; i < count; i++) {
+        bool shared = false;
+        for (unsigned j = 0; j < count; j++) {
+            if (i != j && edges[i].same(edges[j])) {
+                shared = true;
+                break;
+            }
+        }
+        if (!shared || overflow) drawList->AddLine(toScreen(edges[i].a), toScreen(edges[i].b), color);
+    }
+}
+
+}  // namespace
 
 PCSX::Widgets::GPULogger::GPULogger(bool& show) : m_show(show), m_listener(g_system->m_eventBus) {
     m_listener.listen<Events::GUI::VRAMHover>([this](auto event) {
@@ -52,6 +98,7 @@ void PCSX::Widgets::GPULogger::draw(PCSX::GPULogger* logger, const char* title, 
     m_setHighlightRange = false;
     drawNodeButtons(flags);
     drawHighlightOptions(flags);
+    if (logger->followsEmulator()) drawOutputOptions();
     drawVramBreakpoints(logger);
 
     ImGui::Separator();
@@ -65,10 +112,10 @@ void PCSX::Widgets::GPULogger::draw(PCSX::GPULogger* logger, const char* title, 
     int n = 0;
 
     for (auto& logged : logger->m_list) {
-        ImGui::PushID(n);
         if (m_filterEnabled && !logged.isInside(m_filter.x, m_filter.y)) {
             continue;
         }
+        ImGui::PushID(n);
         if (m_showOrigins) {
             if ((logged.origin != GPU::Logged::Origin::REPLAY) &&
                 ((origin != logged.origin) || (value != logged.value) || (length != logged.length))) {
@@ -90,6 +137,7 @@ void PCSX::Widgets::GPULogger::draw(PCSX::GPULogger* logger, const char* title, 
         logger->replay(logger->gpu());
     }
 
+    m_hoveredNode = flags.tempHighlight;
     logger->highlight(flags.tempHighlight, flags.tempHighlight && ImGui::GetIO().KeyCtrl);
 }
 
@@ -183,13 +231,120 @@ void PCSX::Widgets::GPULogger::drawHighlightOptions(NodeFlags& flags) {
     ImGuiHelpers::ShowHelpMarker(_(
         "When enabled, only the commands that are related to the specified pixel will be shown. The pixel location is "
         "specified in the next input fields. The [Probe VRAM] button can be used to set the pixel location by hovering "
-        "and clicking inside the VRAM viewer."));
+        "and clicking inside the VRAM viewer or the Output window."));
     ImGui::InputInt2(_("Pixel location"), m_filter.raw);
     if (ImGui::Button(_("Probe VRAM"))) {
         m_filterProbing = true;
     }
     ImGuiHelpers::ShowHelpMarker(_(
-        "When enabled, hovering then clicking inside the VRAM viewer will set the pixel location for the filtering."));
+        "When enabled, hovering then clicking inside the VRAM viewer or the Output window will set the pixel location "
+        "for the filtering."));
+}
+
+void PCSX::Widgets::GPULogger::drawOutputOptions() {
+    ImGui::Separator();
+    ImGui::TextUnformatted(_("Outlines on the Output window:"));
+    ImGui::SameLine();
+    int outlines = static_cast<int>(m_outputOutlines);
+    ImGui::RadioButton(_("Off"), &outlines, static_cast<int>(OutputOutlines::Off));
+    ImGui::SameLine();
+    ImGui::RadioButton(_("Listed"), &outlines, static_cast<int>(OutputOutlines::Listed));
+    ImGui::SameLine();
+    ImGui::RadioButton(_("Highlighted"), &outlines, static_cast<int>(OutputOutlines::Highlighted));
+    m_outputOutlines = static_cast<OutputOutlines>(outlines);
+    ImGuiHelpers::ShowHelpMarker(
+        _("Draws the edges of the logged commands over the Output window. Listed draws every command shown in the "
+          "logger view below, Highlighted only the selected ones and the one under the mouse when highlight on hover "
+          "is enabled. Busy frames can have thousands of commands."));
+    const char* maps[] = {_("Auto"), _("Display area"), _("Drawing area")};
+    int map = static_cast<int>(m_outputMap);
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+    if (ImGui::Combo(_("Output maps to"), &map, maps, IM_ARRAYSIZE(maps))) {
+        m_outputMap = static_cast<OutputMap>(map);
+    }
+    ImGuiHelpers::ShowHelpMarker(
+        _("Which part of VRAM the Output window stands for, for the probe and the outlines. Display area is the "
+          "buffer being displayed. A double buffered game displays one buffer while it draws the next frame into the "
+          "other one, so the logged frame is usually not the one on screen: Drawing area maps the Output window onto "
+          "the same spot of the buffer the frame was drawn into. Auto picks Drawing area when it does not overlap the "
+          "displayed buffer."));
+}
+
+auto PCSX::Widgets::GPULogger::getOutputMapping(PCSX::GPULogger* logger) -> OutputMapping {
+    auto& display = logger->gpu()->m_display;
+    // A 24 bits pixel takes one and a half 16 bits VRAM pixels.
+    const bool depth24 = display.info.depth == GPU::CtrlDisplayMode::CD_24BITS;
+    OutputMapping map{float(display.start.x()), float(display.start.y()), display.size.x() * (depth24 ? 1.5f : 1.0f),
+                      float(display.size.y())};
+    bool useDrawing = m_outputMap == OutputMap::Drawing;
+    if (m_outputMap == OutputMap::Auto) {
+        // The drawing area end is inclusive.
+        const float x0 = logger->m_drawingAreaX0, y0 = logger->m_drawingAreaY0;
+        const float x1 = logger->m_drawingAreaX1 + 1.0f, y1 = logger->m_drawingAreaY1 + 1.0f;
+        const bool valid = (x1 > x0) && (y1 > y0);
+        const bool overlaps = (x0 < map.x + map.w) && (map.x < x1) && (y0 < map.y + map.h) && (map.y < y1);
+        useDrawing = valid && !overlaps;
+    }
+    if (useDrawing) {
+        map.x = logger->m_drawingAreaX0;
+        map.y = logger->m_drawingAreaY0;
+    }
+    return map;
+}
+
+void PCSX::Widgets::GPULogger::drawOutputOverlay(PCSX::GPULogger* logger, ImVec2 pos, ImVec2 size, bool hovered) {
+    if (!m_show || !logger) return;
+    const bool probing = m_filterProbing;
+    const bool showFilter = m_filterEnabled || probing;
+    if (!probing && !showFilter && (m_outputOutlines == OutputOutlines::Off)) return;
+    const auto map = getOutputMapping(logger);
+    if ((map.w <= 0.0f) || (map.h <= 0.0f) || (size.x <= 0.0f) || (size.y <= 0.0f)) return;
+    const ImVec2 scale(size.x / map.w, size.y / map.h);
+    const ImVec2 end(pos.x + size.x, pos.y + size.y);
+
+    if (probing && hovered) {
+        const ImVec2 mouse = ImGui::GetMousePos();
+        if ((mouse.x >= pos.x) && (mouse.x < end.x) && (mouse.y >= pos.y) && (mouse.y < end.y)) {
+            float x = map.x + (mouse.x - pos.x) / scale.x;
+            float y = map.y + (mouse.y - pos.y) / scale.y;
+            // The display wraps around the right edge of VRAM.
+            if (x >= 1024.0f) x -= 1024.0f;
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                g_system->m_eventBus->signal(Events::GUI::VRAMClick{x, y, Events::GUI::VRAM_16BITS});
+            } else {
+                g_system->m_eventBus->signal(Events::GUI::VRAMHover{x, y, Events::GUI::VRAM_16BITS});
+            }
+        }
+    }
+
+    auto toScreen = [&](OpenGL::ivec2 v) {
+        return ImVec2(pos.x + (v.x() - map.x) * scale.x, pos.y + (v.y() - map.y) * scale.y);
+    };
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    drawList->PushClipRect(pos, end, true);
+    if (m_outputOutlines != OutputOutlines::Off) {
+        const ImU32 listedColor = IM_COL32(0, 255, 128, 160);
+        const ImU32 highlightColor = IM_COL32(255, 255, 0, 255);
+        for (auto& logged : logger->m_list) {
+            const bool highlighted = logged.highlight || (&logged == m_hoveredNode);
+            if (!highlighted) {
+                if (m_outputOutlines == OutputOutlines::Highlighted) continue;
+                if (m_filterEnabled && !logged.isInside(m_filter.x, m_filter.y)) continue;
+            }
+            outlineNode(drawList, logged, toScreen, highlighted ? highlightColor : listedColor);
+        }
+    }
+    if (showFilter) {
+        // A cross on the probed pixel, accounting for the display wrapping around the right edge of VRAM.
+        float px = m_filter.x + 0.5f;
+        if (px < map.x) px += 1024.0f;
+        const ImVec2 c(pos.x + (px - map.x) * scale.x, pos.y + (m_filter.y + 0.5f - map.y) * scale.y);
+        const float r = std::max(4.0f, std::max(scale.x, scale.y) * 2.0f);
+        const ImU32 color = IM_COL32(255, 64, 255, 255);
+        drawList->AddLine(ImVec2(c.x - r, c.y), ImVec2(c.x + r, c.y), color);
+        drawList->AddLine(ImVec2(c.x, c.y - r), ImVec2(c.x, c.y + r), color);
+    }
+    drawList->PopClipRect();
 }
 
 void PCSX::Widgets::GPULogger::drawVramBreakpoints(PCSX::GPULogger* logger) {

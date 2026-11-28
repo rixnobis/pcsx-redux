@@ -19,6 +19,7 @@
 
 #define IMGUI_DEFINE_MATH_OPERATORS
 
+#include "core/psxemulator.h"
 #include "core/system.h"
 #include "gui/gui.h"
 #include "imgui.h"
@@ -47,11 +48,15 @@ void PCSX::GUI::drawOutputWindow(ImGuiContext* context, ImGuiID dockspaceId, ImG
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
                          ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
                          ImGuiWindowFlags_NoBringToFrontOnFocus);
+        const ImVec2 imagePos = ImGui::GetCursorScreenPos();
         if (g_system->getArgs().isShadersDisabled()) {
             ImGui::Image(texture, logicalRenderSize, ImVec2(0, 0), ImVec2(1, 1));
         } else {
             m_outputShaderEditor.renderWithImgui(this, texture, m_renderSize, logicalRenderSize);
         }
+        // This window takes no inputs, so the mouse is over the image whenever no other window wants it.
+        m_gpuLogger.drawOutputOverlay(g_emulator->m_gpuLogger.get(), imagePos, logicalRenderSize,
+                                      !ImGui::GetIO().WantCaptureMouse);
         ImGui::End();
         ImGui::PopStyleVar(2);
     } else {
@@ -77,11 +82,14 @@ void PCSX::GUI::drawOutputWindow(ImGuiContext* context, ImGuiID dockspaceId, ImG
             ImGuiHelpers::normalizeDimensions(textureSize, renderRatio);
             ImGui::SetCursorPos(ImGui::GetCursorPos() + (contentRegion - textureSize) * 0.5f);
             ImTextureID texture = m_offscreenTextures[m_currentTexture];
+            const ImVec2 imagePos = ImGui::GetCursorScreenPos();
             if (g_system->getArgs().isShadersDisabled()) {
                 ImGui::Image(texture, textureSize, ImVec2(0, 0), ImVec2(1, 1));
             } else {
                 m_outputShaderEditor.renderWithImgui(this, texture, m_renderSize, textureSize);
             }
+            m_gpuLogger.drawOutputOverlay(g_emulator->m_gpuLogger.get(), imagePos, textureSize,
+                                          ImGui::IsWindowHovered());
         }
         ImGui::End();
         if (!outputWindowShown) {

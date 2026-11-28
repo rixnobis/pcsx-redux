@@ -518,6 +518,9 @@ typedef Protobuf::MessageField<CDADPCM, TYPESTRING("xaRight"), 49> CDXARight;
 typedef Protobuf::FieldRef<Protobuf::Bool, TYPESTRING("sectorReadSinceSeek"), 50> CDSectorReadSinceSeek;
 typedef Protobuf::FieldRef<Protobuf::Bool, TYPESTRING("scexCountersReset"), 51> CDScexCountersReset;
 typedef Protobuf::FieldRef<Protobuf::UInt64, TYPESTRING("strictReadCount"), 52> CDStrictReadCount;
+typedef Protobuf::FieldRef<Protobuf::Bool, TYPESTRING("strictStalled"), 53> CDStrictStalled;
+typedef Protobuf::FieldRef<Protobuf::UInt64, TYPESTRING("strictReadStartCycle"), 54> CDStrictReadStartCycle;
+typedef Protobuf::FieldRef<Protobuf::Bool, TYPESTRING("strictSpinDownPending"), 55> CDStrictSpinDownPending;
 typedef Protobuf::Message<
     TYPESTRING("CDRom"), CDDataFIFO, CDDataFIFOIndex, CDDataFIFOSize, CDDataFIFOPending, CDRegisterAddress, CDMotorOn,
     CDSpeedChanged, CDInvalidLocL, CDDataRequested, CDSubheaderFilter, CDRealtime, CDReadingState, CDStartPlaying,
@@ -526,7 +529,7 @@ typedef Protobuf::Message<
     CDXAEnded, CDXAFirstSector, CDSoundMapEnabled, CDCurrentPosition, CDSeekPosition, CDLastLocP, CDLastLocL, CDSeed,
     CDLidOpen, CDWasLidOpened, CDLidCloseScheduled, CDLidCloseAtCycles, CDCommandFifo, CDCommandExecuting,
     CDResponseFifo0, CDResponseFifo1, CDXALeft, CDXARight, CDSectorReadSinceSeek, CDScexCountersReset,
-    CDStrictReadCount>
+    CDStrictReadCount, CDStrictStalled, CDStrictReadStartCycle, CDStrictSpinDownPending>
     CDRom;
 typedef Protobuf::MessageField<CDRom, TYPESTRING("cdrom"), 15> CDRomField;
 

@@ -77,6 +77,9 @@ struct State {
     bool sectorreadsinceseek = false;
     bool scexcountersreset = false;
     uint64_t strictreadcount = 0;
+    bool strictstalled = false;
+    uint64_t strictreadstartcycle = 0;
+    bool strictspindownpending = false;
 };
 
 CDRom bind(State& s) {
@@ -150,6 +153,9 @@ CDRom bind(State& s) {
         CDSectorReadSinceSeek{s.sectorreadsinceseek},
         CDScexCountersReset{s.scexcountersreset},
         CDStrictReadCount{s.strictreadcount},
+        CDStrictStalled{s.strictstalled},
+        CDStrictReadStartCycle{s.strictreadstartcycle},
+        CDStrictSpinDownPending{s.strictspindownpending},
     };
 }
 
@@ -233,6 +239,9 @@ void fill(State& s) {
     s.sectorreadsinceseek = true;
     s.scexcountersreset = true;
     s.strictreadcount = 0x123456789abcdefull;
+    s.strictstalled = true;
+    s.strictreadstartcycle = 0xfedcba9876543210ull;
+    s.strictspindownpending = true;
 }
 
 }  // namespace
@@ -333,4 +342,7 @@ TEST(SaveStateCDRom, EveryFieldRoundTrips) {
     EXPECT_EQ(out.sectorreadsinceseek, in.sectorreadsinceseek) << "sectorreadsinceseek";
     EXPECT_EQ(out.scexcountersreset, in.scexcountersreset) << "scexcountersreset";
     EXPECT_EQ(out.strictreadcount, in.strictreadcount) << "strictreadcount";
+    EXPECT_EQ(out.strictstalled, in.strictstalled) << "strictstalled";
+    EXPECT_EQ(out.strictreadstartcycle, in.strictreadstartcycle) << "strictreadstartcycle";
+    EXPECT_EQ(out.strictspindownpending, in.strictspindownpending) << "strictspindownpending";
 }

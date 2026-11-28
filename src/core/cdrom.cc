@@ -127,6 +127,9 @@ class CDRomImpl final : public PCSX::CDRom {
         }
         m_powerOnSeed = m_seed;
         m_strictReadCount = 0;
+        m_strictStalled = false;
+        m_strictReadStartCycle = 0;
+        m_strictSpinDownPending = false;
         // With a disc in, the motor is on when a program starts (SCPH-7001 / SCPH-9002: the first
         // GetStat reports bit 1 set).
         m_motorOn = m_iso && !m_iso->failed() && !isLidOpen();
@@ -203,6 +206,10 @@ class CDRomImpl final : public PCSX::CDRom {
         static const std::chrono::nanoseconds c_retryDelay = 50us;
         const bool debug = PCSX::g_emulator->settings.get<PCSX::Emulator::SettingDebugSettings>()
                                .get<PCSX::Emulator::DebugSettings::LoggingCDROM>();
+        if (m_strictStalled) [[unlikely]] {
+            strictStallTimeout();
+            return;
+        }
         if (m_readingState == ReadingState::Seeking) {
             auto seekType = m_readingType == ReadingType::Play ? SeekType::CDDA : SeekType::DATA;
             auto seekDelay = computeSeekDelay(m_currentPosition, m_seekPosition, seekType, true);
@@ -247,7 +254,7 @@ class CDRomImpl final : public PCSX::CDRom {
                                                                   PCSX::CDRomLogger::AccessType::Data,
                                                                   PCSX::g_emulator->m_cpu->m_regs.cycle);
                     if (PCSX::g_emulator->settings.get<PCSX::Emulator::SettingStrictHardware>()) [[unlikely]] {
-                        maybeInjectReadError();
+                        if (maybeInjectReadError()) break;
                     }
                     auto buffer = m_iso->getBuffer();
                     memcpy(m_lastLocL, buffer, sizeof(m_lastLocL));
@@ -334,13 +341,14 @@ class CDRomImpl final : public PCSX::CDRom {
         return z ^ (z >> 31);
     }
 
-    void maybeInjectReadError() {
+    // Returns whether the sector was picked, in which case it is not delivered.
+    bool maybeInjectReadError() {
         auto &settings = PCSX::g_emulator->settings;
         const uint64_t index = m_strictReadCount++;
         const uint32_t rate = settings.get<PCSX::Emulator::SettingStrictCDReadErrorRate>();
-        if (rate == 0) return;
+        if (rate == 0) return false;
         const uint32_t seed = settings.get<PCSX::Emulator::SettingStrictCDReadErrorSeed>();
-        if ((strictDraw(seed, index) % rate) != 0) return;
+        if ((strictDraw(seed, index) % rate) != 0) return false;
         // The position counts from 00:00:00, as in the CDSector event; the LBA in the log from 00:02:00.
         const uint32_t position = m_currentPosition.toLBA();
         std::string msfFormat = fmt::format("{}", m_currentPosition);
@@ -350,14 +358,58 @@ class CDRomImpl final : public PCSX::CDRom {
         if (events.armed(PCSX::HWEvents::Source::CDROM)) [[unlikely]] {
             events.record(PCSX::HWEvents::CDReadError, position);
         }
-        respondToUnreadableSector();
+        respondToUnreadableSector(seed, index);
+        return true;
     }
 
-    // What the controller does with a data sector it cannot read is not known yet: it is pending a
-    // measurement on a console (redux#2832). Until then this does nothing observable, and the
-    // sector is delivered exactly as it is without strict hardware. Do not put an error code, an
-    // INT5, a retry delay or anything else here before that measurement exists.
-    void respondToUnreadableSector() {}
+    // A data sector the controller cannot read, measured on an SCPH-9002, two runs (Setmode 80h,
+    // 00h and A0h alike). The sector is not delivered and the drive goes silent: no more INT1. A
+    // Pause meanwhile is refused with 43h 80h and the stall goes on. Left alone, the drive gives
+    // up 30 to 51 s after the ReadN/ReadS that started the read, the measured spread, with INT5
+    // 06h 04h; GetlocL then has a header near the bad one (measured 13 before to 2 after; 6
+    // before is used here), and the spindle stops. The
+    // delay is drawn per pick from the injector's seed, so it replays too.
+    void respondToUnreadableSector(uint32_t seed, uint64_t index) {
+        const uint64_t lo = PCSX::psxRegisters::durationToCycles(30s);
+        const uint64_t hi = PCSX::psxRegisters::durationToCycles(51s);
+        const uint64_t deadline = m_strictReadStartCycle + lo + strictDraw(~seed, index) % (hi - lo + 1);
+        const uint64_t now = PCSX::g_emulator->m_cpu->m_regs.cycle;
+        m_strictStalled = true;
+        m_status = Status::Seeking;
+        m_readingState = ReadingState::None;
+        PCSX::g_emulator->m_cpu->schedule(PCSX::Schedule::CDREAD, deadline > now ? uint32_t(deadline - now) : 0);
+    }
+
+    void strictStallTimeout() {
+        m_strictStalled = false;
+        m_status = Status::Idle;
+        m_readingState = ReadingState::None;
+        m_readingType = ReadingType::None;
+        if (m_currentPosition.toLBA() >= 6) {
+            m_iso->readTrack(m_currentPosition - MSF{6u});
+            memcpy(m_lastLocL, m_iso->getBuffer(), sizeof(m_lastLocL));
+            m_invalidLocL = false;
+        }
+        maybeEnqueueError(4, 4);
+        m_strictSpinDownPending = true;
+    }
+
+    // A command that takes the drive somewhere else ends a stall without its timeout error.
+    // Not measured: this keeps those commands as they are without strict hardware.
+    void abandonStall() {
+        if (!m_strictStalled) return;
+        m_strictStalled = false;
+        m_status = Status::Idle;
+        PCSX::g_emulator->m_cpu->unschedule(PCSX::Schedule::CDREAD);
+    }
+
+    // After the timeout error, a Nop still reports the motor on, and the next command sees it
+    // stopped (SCPH-9002: GetlocL, Nop 02h, then Pause 00h 00h). When between the two the spindle
+    // stops is not measured, so it is tied to that sequence.
+    void spinDownAfterStall() {
+        m_strictSpinDownPending = false;
+        m_motorOn = false;
+    }
 
     void scheduledDmaCallback() override {
         auto &mem = PCSX::g_emulator->m_mem;
@@ -861,6 +913,7 @@ class CDRomImpl final : public PCSX::CDRom {
         const bool active = (m_status != Status::Idle) || (m_readingType != ReadingType::None) ||
                             (m_readingState != ReadingState::None);
         if (!m_motorOn && !active) return;
+        abandonStall();
         // A seek or other timed command in flight does not complete.
         if (!m_commandExecuting.empty()) {
             PCSX::g_emulator->m_cpu->unschedule(PCSX::Schedule::CDRCOMMANDS);
@@ -929,9 +982,11 @@ class CDRomImpl final : public PCSX::CDRom {
             m_commandFifo.clear();
             return;
         }
+        if (m_strictSpinDownPending && (command != CdlNop) && (command != CdlGetLocL)) spinDownAfterStall();
         auto handler = c_commandsHandlers[command];
         if (handler) {
             if ((this->*handler)(m_commandFifo, true)) m_commandExecuting = m_commandFifo;
+            if (m_strictSpinDownPending && (command == CdlNop)) spinDownAfterStall();
         } else {
             // 17h and 18h are unused opcodes and error out like 00h. Anything else without a
             // handler is a real command that is not emulated yet.
@@ -1049,6 +1104,7 @@ class CDRomImpl final : public PCSX::CDRom {
                 m_setLocPending = true;
             }
         }
+        abandonStall();
         m_readingType = ReadingType::Play;
         if (m_setLocPending) {
             m_setLocPending = false;
@@ -1248,6 +1304,8 @@ class CDRomImpl final : public PCSX::CDRom {
             --m_seekPosition;
         }
         resetXA();
+        abandonStall();
+        m_strictReadStartCycle = PCSX::g_emulator->m_cpu->m_regs.cycle;
         m_status = Status::Idle;
         m_readingType = ReadingType::Normal;
         QueueElement response;
@@ -1300,6 +1358,7 @@ class CDRomImpl final : public PCSX::CDRom {
             response.pushPayloadData(getStatus());
             maybeTriggerIRQ(Cause::Acknowledge, response);
             schedule(m_motorOn ? 400ms : 1700us);
+            abandonStall();
             m_status = Status::Idle;
             m_readingState = ReadingState::None;
             m_readingType = ReadingType::None;
@@ -1374,6 +1433,7 @@ class CDRomImpl final : public PCSX::CDRom {
             response.pushPayloadData(getStatus());
             maybeTriggerIRQ(Cause::Acknowledge, response);
             schedule(760ms);
+            abandonStall();
             m_status = Status::Idle;
             m_readingState = ReadingState::None;
             m_readingType = ReadingType::None;
@@ -1390,6 +1450,12 @@ class CDRomImpl final : public PCSX::CDRom {
 
     // Command 9.
     bool cdlPause(const QueueElement &command, bool start) {
+        // Stuck on an unreadable sector, the drive refuses it: 43h 80h (SCPH-9002).
+        if (start && m_strictStalled) {
+            maybeEnqueueError(1, 0x80);
+            maybeScheduleNextCommand();
+            return false;
+        }
         if (start) {
             if (m_status == Status::Idle) {
                 schedule(200us);
@@ -1444,6 +1510,7 @@ class CDRomImpl final : public PCSX::CDRom {
             response.pushPayloadData(getStatus());
             maybeTriggerIRQ(Cause::Acknowledge, response);
             schedule(delay);
+            abandonStall();
             // TODO: figure out exactly the various states of the CD-Rom controller
             // that are being reset, and their value.
             m_currentPosition.reset();
@@ -1636,6 +1703,7 @@ class CDRomImpl final : public PCSX::CDRom {
             response.pushPayloadData(getStatus());
             maybeTriggerIRQ(Cause::Acknowledge, response);
             schedule(15ms);
+            abandonStall();
             return true;
         } else if (m_status != Status::Seeking) {
             auto seekDelay = computeSeekDelay(m_currentPosition, m_seekPosition, SeekType::DATA);
@@ -1675,6 +1743,7 @@ class CDRomImpl final : public PCSX::CDRom {
             response.pushPayloadData(getStatus());
             maybeTriggerIRQ(Cause::Acknowledge, response);
             schedule(15ms);
+            abandonStall();
             return true;
         } else if (m_status != Status::Seeking) {
             auto seekDelay = computeSeekDelay(m_currentPosition, m_seekPosition, SeekType::CDDA);

@@ -133,6 +133,13 @@ class CDRom {
     // read error injector draws from (StrictCDReadErrorSeed, this count), so it replays across a
     // save state; a state saved before the field existed restores it as 0.
     uint64_t m_strictReadCount = 0;
+    // Strict hardware: the drive is stuck on an unreadable sector. Its timeout error is the
+    // CDREAD event, due m_strictReadStartCycle plus the drawn delay.
+    bool m_strictStalled = false;
+    // Strict hardware: the cycle of the ReadN/ReadS that started the current read.
+    uint64_t m_strictReadStartCycle = 0;
+    // Strict hardware: the timeout error has been raised and the spindle has not stopped yet.
+    bool m_strictSpinDownPending = false;
     uint8_t m_dataFIFO[2352] = {0};
     uint32_t m_dataFIFOIndex = 0;
     uint32_t m_dataFIFOSize = 0;

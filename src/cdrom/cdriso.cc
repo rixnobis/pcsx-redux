@@ -442,6 +442,9 @@ bool PCSX::CDRIso::getLocP(const PCSX::IEC60908b::MSF msf, uint8_t locP[8]) {
     }
     relative.toBCD(locP + 2);
     msf.toBCD(locP + 5);
+    // A sector listed in the SBI file has a corrupted SubQ on the real disc (LibCrypt). Report it
+    // with both MSFs zeroed, as this did before the CD-ROM rewrite.
+    if (CheckSBI(locP + 5)) memset(locP + 2, 0, 6);
 
     return true;
 }
